@@ -1,0 +1,38 @@
+# Web scraping
+requests
+beautifulsoup4
+lxml
+pypdf
+urllib3
+
+# Crawling and rate limiting
+scrapy
+requests-ratelimiter
+
+# Document processing
+python-dateutil
+pydantic
+
+# Chunking and text processing
+tiktoken
+langchain
+langchain-community
+langchain-openai
+
+# Embeddings
+sentence-transformers
+fastembed
+torch
+
+# Vector database
+faiss-cpu
+chromadb
+
+# LLM integration
+langchain-mistralai
+mistralai
+
+# Utilities
+python-dotenv
+tqdm
+loguru
