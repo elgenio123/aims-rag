@@ -1,8 +1,16 @@
 """Main CLI for AIMS Cameroon RAG Pipeline."""
+import warnings
+
+# Silence noisy deprecation warnings as early as possible
+try:
+    from cryptography.utils import CryptographyDeprecationWarning
+    warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
+except Exception:
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 import argparse
 from loguru import logger
 from src.utils import setup_logging
-from src.scraper import Crawler
 from src.storage.storage import DocumentStorage
 from src.chunker import chunk_document
 from pathlib import Path
@@ -10,7 +18,16 @@ import json
 
 setup_logging()
 
+# Silence noisy deprecation warnings in console
+try:
+    from cryptography.utils import CryptographyDeprecationWarning
+    warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
+except Exception:
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 def cmd_scrape(args):
+    # Lazy import to avoid bringing heavy deps when not needed
+    from src.scraper import Crawler
     urls = args.url
     crawler = Crawler(urls)
     docs = crawler.crawl()
@@ -42,7 +59,8 @@ def cmd_index(args):
 
 
 def cmd_full(args):
-    # Lazy import to avoid heavy dependencies during 'scrape'
+    # Lazy imports to avoid heavy dependencies during 'scrape'
+    from src.scraper import Crawler
     from src.rag import RagPipeline
     cmd_scrape(args)
     cmd_index(args)
