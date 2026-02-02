@@ -2,6 +2,7 @@
 from typing import List, Dict, Tuple
 from loguru import logger
 from config import EMBEDDING_MODEL, VECTOR_DB_TYPE, VECTOR_DB_PATH, EMBEDDING_BACKEND
+from pathlib import Path
 import os
 
 # FAISS backend
@@ -88,6 +89,13 @@ class Indexer:
         self.backend_name = EMBEDDING_BACKEND.lower()
         self.model = None
         self.dim = None
+        # Ensure fastembed uses a persistent cache path to avoid /tmp eviction
+        try:
+            cache_root = Path(VECTOR_DB_PATH).parent / "fastembed_cache"
+            cache_root.mkdir(parents=True, exist_ok=True)
+            os.environ.setdefault("FASTEMBED_CACHE_PATH", str(cache_root))
+        except Exception:
+            pass
         if self.backend_name == 'fastembed':
             try:
                 from fastembed import TextEmbedding
@@ -121,10 +129,12 @@ class Indexer:
     def embed_chunks(self, chunks: List[Dict]) -> List[List[float]]:
         texts = [c['text'] for c in chunks]
         if self.backend_name == 'fastembed':
-            embeddings = list(self.fe.embed(texts))
+            embeddings = list(self.fe.embed(texts))  # numpy arrays
+            embeddings = [e.tolist() if hasattr(e, 'tolist') else list(e) for e in embeddings]
         else:
             embeddings = self.model.encode(texts, show_progress_bar=True, normalize_embeddings=False)
-        return embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
+            embeddings = embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
+        return embeddings
 
     def add(self, chunks: List[Dict]):
         embs = self.embed_chunks(chunks)
@@ -138,9 +148,11 @@ class Indexer:
 
     def search(self, query: str, top_k: int = 4) -> List[Dict]:
         if self.backend_name == 'fastembed':
-            q_emb = next(self.fe.embed([query]))
+            q = next(self.fe.embed([query]))
+            q_emb = q.tolist() if hasattr(q, 'tolist') else list(q)
         else:
-            q_emb = self.model.encode([query], normalize_embeddings=False)[0]
+            q = self.model.encode([query], normalize_embeddings=False)[0]
+            q_emb = q.tolist() if hasattr(q, 'tolist') else list(q)
         results = self.backend.search(q_emb, top_k=top_k)
         out = []
         if VECTOR_DB_TYPE == 'faiss':

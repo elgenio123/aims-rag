@@ -1,4 +1,4 @@
-"""LangChain RAG pipeline using Mistral via direct API or OpenRouter.
+"""LangChain RAG pipeline using Mistral via direct API.
 
 Ensures strict context grounding through a system message.
 """
@@ -11,8 +11,6 @@ from config import (
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
     OPENROUTER_MODEL,
-    OPENROUTER_HTTP_REFERER,
-    OPENROUTER_X_TITLE,
 )
 from src.embedder import Indexer
 
@@ -44,26 +42,18 @@ class RagPipeline:
     def _ensure_llm(self):
         if self.llm is not None:
             return
-        # Prefer OpenRouter if configured; otherwise use direct Mistral
+        # Prefer OpenRouter if configured; otherwise use direct Mistral API
         if OPENROUTER_API_KEY:
             try:
                 from langchain_openai import ChatOpenAI
             except Exception as e:
-                raise RuntimeError(
-                    "langchain-openai is required for OpenRouter. Install it and retry."
-                ) from e
-            default_headers = {}
-            if OPENROUTER_HTTP_REFERER:
-                default_headers["HTTP-Referer"] = OPENROUTER_HTTP_REFERER
-            if OPENROUTER_X_TITLE:
-                default_headers["X-Title"] = OPENROUTER_X_TITLE
+                raise RuntimeError("langchain-openai is not available; please ensure it's installed.") from e
             self.llm = ChatOpenAI(
-                api_key=OPENROUTER_API_KEY,
-                base_url=OPENROUTER_BASE_URL,
                 model=OPENROUTER_MODEL,
-                default_headers=default_headers or None,
+                openai_api_key=OPENROUTER_API_KEY,
+                base_url=OPENROUTER_BASE_URL,
             )
-            logger.info(f"Using OpenRouter model: {OPENROUTER_MODEL}")
+            logger.info(f"Using OpenRouter via ChatOpenAI (model={OPENROUTER_MODEL})")
         else:
             if not MISTRAL_API_KEY:
                 raise ValueError("MISTRAL_API_KEY is not set and OPENROUTER_API_KEY not provided")
@@ -97,7 +87,13 @@ class RagPipeline:
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=prompt),
         ]
-        resp = self.llm.invoke(messages)
+        try:
+            resp = self.llm.invoke(messages)
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Unauthorized" in msg:
+                raise RuntimeError("Unauthorized when calling LLM. Check your OPENROUTER_API_KEY or MISTRAL_API_KEY.") from e
+            raise
         answer_text = resp.content if hasattr(resp, 'content') else str(resp)
         trace = [{
             'doc_id': r.get('doc_id'),
