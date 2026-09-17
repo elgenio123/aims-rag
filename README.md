@@ -23,13 +23,20 @@ This pipeline consists of five stages:
 
 ## Installation
 
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
 1. Clone the repository
-2. Install dependencies:
+2. Install uv (if you don't have it):
 ```bash
-pip install -r requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-3. Configure environment variables:
+3. Install dependencies (creates `.venv/` from `uv.lock`, using Python 3.12):
+```bash
+uv sync
+```
+
+4. Configure environment variables:
 ```bash
 cp .env.example .env
 # Edit .env and add your MISTRAL_API_KEY
@@ -40,19 +47,27 @@ cp .env.example .env
 ### 1. Scrape and Build Knowledge Base
 
 ```bash
-python main.py scrape --url https://aims-cameroon.org
+uv run main.py scrape --url https://aims-cameroon.org
 ```
 
 ### 2. Query the Knowledge Base
 
 ```bash
-python main.py query "What are the admission requirements for AIMS Cameroon?"
+uv run main.py query "What are the admission requirements for AIMS Cameroon?"
 ```
 
 ### 3. Full Pipeline (Scrape + Index + Query)
 
 ```bash
-python main.py full --url https://aims-cameroon.org --query "Tell me about the academic programs"
+uv run main.py full --url https://aims-cameroon.org --query "Tell me about the academic programs"
+```
+
+### Managing Dependencies
+
+```bash
+uv add <package>        # add a dependency
+uv remove <package>     # remove a dependency
+uv lock --upgrade       # upgrade locked versions
 ```
 
 ## Project Structure
@@ -60,7 +75,8 @@ python main.py full --url https://aims-cameroon.org --query "Tell me about the a
 ```
 aims-rag/
 ├── config.py              # Configuration management
-├── requirements.txt       # Python dependencies
+├── pyproject.toml         # Project metadata and dependencies
+├── uv.lock                # Locked dependency versions
 ├── main.py               # Main entry point
 ├── src/
 │   ├── scraper/          # Web scraping module
