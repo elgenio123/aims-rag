@@ -4,8 +4,8 @@ Ensures strict context grounding through a system message.
 """
 from typing import List, Dict
 from loguru import logger
-from langchain.schema import Document as LCDocument, SystemMessage, HumanMessage
-from langchain.prompts import PromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.prompts import PromptTemplate
 from config import (
     MISTRAL_API_KEY,
     OPENROUTER_API_KEY,
@@ -50,7 +50,7 @@ class RagPipeline:
                 raise RuntimeError("langchain-openai is not available; please ensure it's installed.") from e
             self.llm = ChatOpenAI(
                 model=OPENROUTER_MODEL,
-                openai_api_key=OPENROUTER_API_KEY,
+                api_key=OPENROUTER_API_KEY,
                 base_url=OPENROUTER_BASE_URL,
             )
             logger.info(f"Using OpenRouter via ChatOpenAI (model={OPENROUTER_MODEL})")
