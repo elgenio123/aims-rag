@@ -6,6 +6,7 @@ from .text_utils import (
     extract_domain,
     clean_text,
     remove_duplicates,
+    strip_nav_menu,
     categorize_content
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     'extract_domain',
     'clean_text',
     'remove_duplicates',
+    'strip_nav_menu',
     'categorize_content'
 ]

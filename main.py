@@ -29,7 +29,8 @@ def cmd_scrape(args):
     # Lazy import to avoid bringing heavy deps when not needed
     from src.scraper import Crawler
     urls = args.url
-    crawler = Crawler(urls)
+    resume = getattr(args, 'resume', False)
+    crawler = Crawler(urls, skip_existing=resume)
     docs = crawler.crawl()
     logger.info(f"Scraped and stored {len(docs)} documents.")
 
@@ -87,6 +88,8 @@ def build_parser():
 
     p_scrape = sub.add_parser('scrape', help='Scrape starting URLs')
     p_scrape.add_argument('--url', nargs='+', required=True, help='Starting URLs to crawl')
+    p_scrape.add_argument('--resume', action='store_true',
+                           help='Skip URLs that already have a stored document instead of re-fetching them')
     p_scrape.set_defaults(func=cmd_scrape)
 
     p_index = sub.add_parser('index', help='Chunk and build vector index')

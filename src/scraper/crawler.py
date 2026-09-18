@@ -1,5 +1,5 @@
 """Web crawler for AIMS Cameroon with robots.txt respect and rate limiting."""
-from typing import List, Set, Tuple, Optional
+from typing import List, Set, Tuple, Optional, Dict
 from urllib.parse import urljoin, urlparse
 import time
 import requests
@@ -8,8 +8,8 @@ from loguru import logger
 import re
 import io
 from pypdf import PdfReader
-from config import SCRAPE_DELAY_SECONDS, MAX_DEPTH, RESPECT_ROBOTS_TXT, USER_AGENT
-from src.utils import clean_text, remove_duplicates, categorize_content
+from config import SCRAPE_DELAY_SECONDS, MAX_DEPTH, RESPECT_ROBOTS_TXT, USER_AGENT, LOGS_DIR
+from src.utils import clean_text, remove_duplicates, strip_nav_menu, categorize_content
 from src.storage.document import Document
 from src.storage.storage import DocumentStorage
 
@@ -23,11 +23,34 @@ HEADERS = {
     "Accept": "text/html,application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+# Number of times to retry a URL after a transient (network/non-200) failure
+# before giving up on it for good.
+MAX_FETCH_RETRIES = 2
+
+# Sitemap sub-feeds that aren't real content pages and should be skipped when
+# seeding the crawl from a WordPress sitemap index.
+SITEMAP_SKIP_PATTERNS = (
+    "wp-sitemap-users-",
+    "wp-sitemap-taxonomies-post_tag-",
+)
+
 class Crawler:
-    def __init__(self, start_urls: List[str], max_depth: int = MAX_DEPTH, delay: float = SCRAPE_DELAY_SECONDS):
+    def __init__(
+        self,
+        start_urls: List[str],
+        max_depth: int = MAX_DEPTH,
+        delay: float = SCRAPE_DELAY_SECONDS,
+        discover_sitemap: bool = True,
+        skip_existing: bool = False,
+    ):
         self.start_urls = start_urls
         self.max_depth = max_depth
         self.delay = delay
+        self.discover_sitemap = discover_sitemap
+        # Resume mode: skip URLs that already have a stored document instead
+        # of re-fetching them. Lets an interrupted full crawl pick back up
+        # without redoing already-completed work.
+        self.skip_existing = skip_existing
         self.visited: Set[str] = set()
         self.allowed_domains = {urlparse(u).netloc for u in start_urls}
         self.storage = DocumentStorage()
@@ -114,11 +137,26 @@ class Crawler:
                 node.decompose()
         return soup
 
+    # Bare "user@domain.tld" hrefs that are missing a `mailto:` scheme.
+    _BARE_EMAIL_RE = re.compile(r'^[^\s@:/]+@[^\s@]+\.[^\s@]+$')
+
     def _extract_links(self, soup: BeautifulSoup, base_url: str) -> List[str]:
         links = []
         for a in soup.find_all('a', href=True):
-            href = a['href']
-            if href.startswith('#'):
+            href = a['href'].strip()
+            if not href or href.startswith('#'):
+                continue
+            if href.lower().startswith(('mailto:', 'tel:', 'javascript:')):
+                continue
+            # Authors on the source site sometimes wrap a full URL in stray
+            # parentheses, e.g. href="(https://epubs.siam.org/doi/)". Left as
+            # a relative href, urljoin() would mangle this into a bogus path
+            # on our own domain, so unwrap it first.
+            if href.startswith('(') and href.endswith(')'):
+                href = href[1:-1]
+            # Bare "user@host" hrefs missing a mailto: scheme (source-site
+            # authoring errors) resolve to bogus same-domain paths otherwise.
+            if self._BARE_EMAIL_RE.match(href):
                 continue
             full = urljoin(base_url, href)
             parsed = urlparse(full)
@@ -141,11 +179,85 @@ class Crawler:
                 texts.append(txt)
         return "\n\n".join(texts)
 
+    def _discover_sitemap_urls(self, start_url: str) -> List[str]:
+        """Enumerate every page URL from the site's sitemap(s), if any.
+
+        BFS link-following alone will never reach orphan pages (individual
+        profile pages, taxonomy archives, posts not linked from any crawled
+        listing, etc.). Seeding the queue from the sitemap guarantees every
+        canonical page the site itself advertises gets fetched at least once.
+        Best-effort: any failure here just falls back to pure link-following.
+        """
+        parsed = urlparse(start_url)
+        domain = parsed.netloc
+        scheme = parsed.scheme or 'https'
+        sitemap_urls: List[str] = []
+
+        robots_url = f"{scheme}://{domain}/robots.txt"
+        try:
+            resp = requests.get(robots_url, headers=HEADERS, timeout=20)
+            if resp.status_code == 200:
+                sitemap_urls = re.findall(r'(?im)^Sitemap:\s*(\S+)', resp.text)
+        except requests.RequestException:
+            pass
+
+        if not sitemap_urls:
+            # Common conventions when robots.txt doesn't advertise one.
+            sitemap_urls = [
+                f"{scheme}://{domain}/wp-sitemap.xml",
+                f"{scheme}://{domain}/sitemap.xml",
+            ]
+
+        discovered: List[str] = []
+        seen_sitemaps: Set[str] = set()
+        to_process = list(sitemap_urls)
+
+        while to_process:
+            sm_url = to_process.pop(0)
+            if sm_url in seen_sitemaps:
+                continue
+            seen_sitemaps.add(sm_url)
+            if any(p in sm_url for p in SITEMAP_SKIP_PATTERNS):
+                continue
+            try:
+                resp = requests.get(sm_url, headers=HEADERS, timeout=20)
+                if resp.status_code != 200:
+                    continue
+            except requests.RequestException:
+                continue
+
+            locs = re.findall(r'<loc>\s*([^<\s]+)\s*</loc>', resp.text)
+            if '<sitemapindex' in resp.text:
+                # Index of sub-sitemaps: queue them for processing too.
+                to_process.extend(locs)
+            else:
+                discovered.extend(locs)
+
+        # Restrict to the domain we're actually crawling and dedupe.
+        discovered = [u for u in discovered if urlparse(u).netloc == domain]
+        discovered = list(dict.fromkeys(discovered))
+        if discovered:
+            logger.info(f"Discovered {len(discovered)} URLs from sitemap for {domain}")
+        else:
+            logger.info(f"No sitemap URLs discovered for {domain}; relying on link-following only")
+        return discovered
+
     def crawl(self) -> List[Document]:
-        queue: List[Tuple[str, int]] = [(url, 0) for url in self.start_urls]
+        seed_urls: List[str] = list(self.start_urls)
+        if self.discover_sitemap:
+            for start_url in self.start_urls:
+                seed_urls.extend(self._discover_sitemap_urls(start_url))
+        seed_urls = list(dict.fromkeys(seed_urls))
+
+        # Seed URLs all start at depth 0 so sitemap-discovered pages are never
+        # dropped by the max-depth limit.
+        queue: List[Tuple[str, int]] = [(url, 0) for url in seed_urls]
         documents: List[Document] = []
         seen_urls: Set[str] = set()
-        logger.info(f"Starting crawl with {len(queue)} start URLs")
+        queued_urls: Set[str] = set(seed_urls)
+        retry_counts: Dict[str, int] = {}
+        failed_urls: List[str] = []
+        logger.info(f"Starting crawl with {len(queue)} seed URLs")
 
         while queue:
             url, depth = queue.pop(0)
@@ -153,10 +265,16 @@ class Crawler:
                 continue
             if url in seen_urls:
                 continue
-            seen_urls.add(url)
+
+            if self.skip_existing:
+                doc_id = re.sub(r'[^a-zA-Z0-9]+', '_', url)[:100]
+                if self.storage.document_exists(doc_id):
+                    seen_urls.add(url)
+                    continue
 
             if not self._allowed(url):
                 logger.info(f"Skipping disallowed by robots.txt: {url}")
+                seen_urls.add(url)
                 continue
 
             # Polite delay
@@ -164,8 +282,17 @@ class Crawler:
 
             html_text, resp = self._fetch(url)
             if not resp:
-                logger.warning(f"Skipping due to fetch failure: {url}")
+                retry_counts[url] = retry_counts.get(url, 0) + 1
+                if retry_counts[url] <= MAX_FETCH_RETRIES:
+                    logger.info(f"Retry {retry_counts[url]}/{MAX_FETCH_RETRIES} scheduled for {url}")
+                    queue.append((url, depth))
+                else:
+                    logger.warning(f"Giving up on {url} after {MAX_FETCH_RETRIES} retries")
+                    seen_urls.add(url)
+                    failed_urls.append(url)
                 continue
+
+            seen_urls.add(url)
 
             is_pdf = self._is_pdf(url, resp.headers)
             raw_text = ""
@@ -187,12 +314,14 @@ class Crawler:
 
                 # Enqueue discovered links from same domain
                 for link in outgoing_links:
-                    if link not in seen_urls:
+                    if link not in seen_urls and link not in queued_urls:
+                        queued_urls.add(link)
                         queue.append((link, depth + 1))
 
             # Clean and deduplicate text
             cleaned = clean_text(raw_text)
             cleaned = remove_duplicates(cleaned)
+            cleaned = strip_nav_menu(cleaned)
             category = categorize_content(url, title, cleaned)
 
             # Skip tiny pages
@@ -217,6 +346,12 @@ class Crawler:
             self.storage.save_document(document)
             documents.append(document)
             logger.info(f"Stored document for {url} with category {document.category}")
+
+        if failed_urls:
+            report_path = LOGS_DIR / "failed_urls.txt"
+            with report_path.open('w', encoding='utf-8') as f:
+                f.write("\n".join(failed_urls))
+            logger.warning(f"{len(failed_urls)} URLs failed after retries; see {report_path}")
 
         logger.info(f"Crawl complete. Stored {len(documents)} documents.")
         return documents

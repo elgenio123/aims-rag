@@ -49,6 +49,38 @@ def clean_text(text: str) -> str:
     
     return normalize_whitespace(text)
 
+# The AIMS Cameroon WordPress theme prepends this same fixed mega-menu block
+# (English or French, depending on locale) ahead of every page's real content.
+# It isn't wrapped in a <nav>/<header> element, so _clean_soup() can't remove
+# it, and it ends up inline in raw_text - on short pages (single
+# person/researcher profiles) it can be 60-80% of the stored text. Captured
+# verbatim from clean_text()+remove_duplicates() output; verified as an exact
+# prefix match against ~1700 already-scraped documents.
+NAV_MENU_BLOCKS = [
+    "EN EN FR\n\nAIMS ECOSYSTEM\n\nAIMS ENTITIES\n\nAIMS GLOBAL SECRETARIAT\n\n"
+    "AIMS SOUTH AFRICA\n\nAIMS SENEGAL\n\nAIMS GHANA\n\nAIMS CAMEROON\n\nAIMS RWANDA\n\n"
+    "AIMS INITIATIVES\n\nNEXT EINSTEIN FORUM (NEF)\n\nQUANTUM LEAP AFRICA\n\n"
+    "AIMS PROGRAMS\n\nAFRICAN MASTER’S IN MACHINE INTELLIGENCE (AMMI)\n\n"
+    "AIMS RESEARCH\n\nMASTERCARD FOUNDATION SCHOLARS PROGRAM @ AIMS",
+
+    "FR FR EN\n\nÉCOSYSTÈME AIMS\n\nENTITÉS AIMS\n\nSECRÉTARIAT MONDIAL AIMS\n\n"
+    "AIMS AFRIQUE DU SUD\n\nAIMS SENEGAL\n\nAIMS GHANA\n\nAIMS CAMEROUN\n\nAIMS RWANDA\n\n"
+    "INITIATIVES AIMS\n\nPROCHAIN FORUM EINSTEIN (NEF)\n\nQUANTUM LEAP AFRIQUE\n\n"
+    "PROGRAMMES AIMS\n\nMASTER AFRICAIN EN INTELLIGENCE MACHINE (AMMI)\n\n"
+    "RECHERCHE AIMS\n\nPROGRAMME DE BOURSES D'ÉTUDES DE LA FONDATION MASTERCARD @ AIMS",
+]
+
+def strip_nav_menu(text: str) -> str:
+    """Strip the repeated site nav-menu block from the start of extracted text.
+
+    No-op (returns text unchanged) if none of the known blocks match, e.g.
+    for PDF-derived text, which never had a menu in the first place.
+    """
+    for block in NAV_MENU_BLOCKS:
+        if text.startswith(block):
+            return text[len(block):].lstrip('\n').lstrip()
+    return text
+
 def remove_duplicates(text: str, threshold: int = 50) -> str:
     """Remove duplicate paragraphs from text."""
     paragraphs = text.split('\n\n')
