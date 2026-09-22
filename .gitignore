@@ -13,7 +13,8 @@ ENV/
 build/
 develop-eggs/
 dist/
-data/
+data/documents/
+data/vector_db/
 eggs/
 .eggs/
 logs/
@@ -27,7 +28,7 @@ wheels/
 *.egg
 
 # Data
-data/
+data/documents/
 logs/
 *.db
 *.sqlite
