@@ -1,0 +1,15 @@
+# Public tier. Port 80 is published on the host; the web security group only admits the ALB.
+name: aims-rag
+services:
+  web:
+    image: aims-rag-web:${IMAGE_TAG:?IMAGE_TAG missing}
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

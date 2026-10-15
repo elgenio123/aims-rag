@@ -1,0 +1,35 @@
+# Isolated test run: own project/network, throwaway in-memory Postgres, no .env (no real API key).
+#   docker compose -f docker-compose.test.yml run --rm --build tests
+#   docker compose -f docker-compose.test.yml down -v
+name: aims-rag-test
+
+services:
+  testdb:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: aims
+      POSTGRES_DB: aims
+      POSTGRES_PASSWORD: test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aims -d aims"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: ./backend
+      target: test
+    image: aims-rag-api-test:${IMAGE_TAG:-latest}
+    environment:
+      POSTGRES_HOST: testdb
+      POSTGRES_PASSWORD: test
+      REQUIRE_DB: "1"
+      OPENROUTER_API_KEY: test-key-not-used
+      OPENROUTER_BASE_URL: http://127.0.0.1:9/v1
+      EMBEDDING_DIMENSIONS: "8"
+    depends_on:
+      testdb:
+        condition: service_healthy

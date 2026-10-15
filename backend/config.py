@@ -10,12 +10,10 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 DOCUMENTS_DIR = DATA_DIR / "documents"
-VECTOR_DB_DIR = DATA_DIR / "vector_db"
 LOGS_DIR = BASE_DIR / "logs"
 
 # Ensure directories exist
 DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
-VECTOR_DB_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Mistral API (direct)
@@ -28,9 +26,12 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-7b-instruct"
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "")
 
-# Vector Database
-VECTOR_DB_TYPE = os.getenv("VECTOR_DB_TYPE", "faiss")
-VECTOR_DB_PATH = os.getenv("VECTOR_DB_PATH", str(VECTOR_DB_DIR))
+# Vector Database (Postgres + pgvector)
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "aims")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", f"postgresql://aims:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/aims"
+)
 
 # Document Storage
 DOCUMENTS_PATH = os.getenv("DOCUMENTS_PATH", str(DOCUMENTS_DIR))
@@ -45,9 +46,10 @@ USER_AGENT = "AIMS-RAG-Bot/1.0 (Educational Purpose)"
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "400"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "75"))
 
-# Embedding Model
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-EMBEDDING_BACKEND = os.getenv("EMBEDDING_BACKEND", "sentence-transformers")  # options: sentence-transformers, fastembed
+# Embedding Model (served through OpenRouter's OpenAI-compatible /embeddings endpoint)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-large")
+EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "100"))
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

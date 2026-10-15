@@ -85,11 +85,7 @@ def token_f1(pred: str, ref: str):
 
 
 def embed_text(indexer, text: str):
-    if indexer.backend_name == "fastembed":
-        v = next(indexer.fe.embed([text]))
-        return v.tolist() if hasattr(v, "tolist") else list(v)
-    v = indexer.model.encode([text], normalize_embeddings=True)[0]
-    return v.tolist() if hasattr(v, "tolist") else list(v)
+    return indexer.embed_texts([text])[0]
 
 
 def cosine(a, b) -> float:

@@ -1,0 +1,24 @@
+# App tier. Port 8000 is published on the host; the api security group only admits the web tier.
+name: aims-rag
+services:
+  api:
+    image: aims-rag-api:${IMAGE_TAG:?IMAGE_TAG missing}
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  indexer:
+    image: aims-rag-api:${IMAGE_TAG:?IMAGE_TAG missing}
+    profiles: ["tools"]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    command: ["python", "main.py", "index"]

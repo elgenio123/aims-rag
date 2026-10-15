@@ -1,147 +1,67 @@
-# AIMS Cameroon RAG Pipeline
+# AIMS Cameroon RAG
 
-An autonomous RAG (Retrieval-Augmented Generation) data engineering pipeline for building a high-quality, source-grounded knowledge base about AIMS Cameroon.
+A question-answering assistant for AIMS Cameroon. It scrapes the institute's websites, indexes the content in Postgres/pgvector with OpenRouter embeddings, and answers questions with an LLM that only uses retrieved, cited sources. It's served by a FastAPI backend and a Next.js web app, all in Docker.
 
-## Overview
-
-This pipeline consists of five stages:
-1. **Deep Web Scraping** - Crawl and extract content from AIMS Cameroon websites
-2. **Document Storage** - Store structured documents with full metadata
-3. **Chunking & Embedding** - Break documents into semantic chunks and embed them
-4. **Vector Database Indexing** - Store chunks in FAISS/Chroma for efficient retrieval
-5. **RAG Pipeline** - Answer questions using LangChain + Mistral LLM with strict source grounding
-
-## Features
-
-- ✅ Respects robots.txt and applies rate limiting
-- ✅ Supports HTML pages and PDF documents
-- ✅ Comprehensive metadata tracking and traceability
-- ✅ Semantic chunking with context preservation
-- ✅ Multiple vector database backends (FAISS, Chroma)
-- ✅ Strict source grounding - no hallucinations
-- ✅ Complete logging and traceability
-
-## Installation
-
-This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
-
-1. Clone the repository
-2. Install uv (if you don't have it):
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-3. Install dependencies (creates `.venv/` from `uv.lock`, using Python 3.12):
-```bash
-uv sync
-```
-
-4. Configure environment variables:
-```bash
-cp .env.example .env
-# Edit .env and add your MISTRAL_API_KEY
-```
-
-## Usage
-
-### 1. Scrape and Build Knowledge Base
-
-```bash
-uv run main.py scrape --url https://aims-cameroon.org
-```
-
-### 2. Query the Knowledge Base
-
-```bash
-uv run main.py query "What are the admission requirements for AIMS Cameroon?"
-```
-
-### 3. Full Pipeline (Scrape + Index + Query)
-
-```bash
-uv run main.py full --url https://aims-cameroon.org --query "Tell me about the academic programs"
-```
-
-### Managing Dependencies
-
-```bash
-uv add <package>        # add a dependency
-uv remove <package>     # remove a dependency
-uv lock --upgrade       # upgrade locked versions
-```
-
-## Project Structure
+## Structure
 
 ```
 aims-rag/
-├── config.py              # Configuration management
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependency versions
-├── main.py               # Main entry point
-├── src/
-│   ├── scraper/          # Web scraping module
-│   ├── storage/          # Document storage system
-│   ├── chunker/          # Chunking module
-│   ├── embedder/         # Embedding and vector DB
-│   ├── rag/              # RAG pipeline
-│   └── utils/            # Utilities and logging
-├── data/
-│   ├── documents/        # Stored documents (JSON)
-│   └── vector_db/        # Vector database files
-└── logs/                 # Pipeline logs
+├── backend/                 # Python: scraper, chunker, embeddings, RAG, FastAPI
+│   ├── src/
+│   │   ├── api/app.py       # FastAPI: GET /health, POST /ask
+│   │   ├── scraper/         # BFS crawler (HTML + PDF, robots.txt aware)
+│   │   ├── storage/         # Document model + JSON storage
+│   │   ├── chunker/         # sentence-boundary, token-budgeted chunks
+│   │   ├── embedder/        # OpenRouter embeddings + pgvector store
+│   │   └── rag/pipeline.py  # retrieval + grounded answer generation
+│   ├── scripts/             # evaluation, QA generation, fine-tune data prep
+│   ├── data/documents/      # scraped corpus (gitignored)
+│   ├── main.py              # CLI: scrape | index | query | full
+│   ├── config.py
+│   ├── .env                 # your secrets (gitignored), from .env.example
+│   └── Dockerfile
+├── web/                     # Next.js chat UI (proxies /api/ask → backend)
+│   └── Dockerfile
+├── infra/                   # Terraform: VPC, security groups, 3 EC2 servers, ALB
+├── deploy/                  # release pipeline + per-server compose files + AWS guide
+└── docker-compose.yml
 ```
 
-## Knowledge Scope
+## Run locally (Docker only)
 
-The pipeline extracts information about:
-- Institutional Information
-- Academic Programs
-- Admissions
-- Funding & Scholarships
-- Faculty & Research
-- Student Life
-- Administration & Contacts
-- FAQs & Policies
+```bash
+cp backend/.env.example backend/.env   # set OPENROUTER_API_KEY and POSTGRES_PASSWORD
+docker compose up -d --build           # db + api + web, UI on http://localhost
+docker compose --profile tools run --rm indexer   # embed backend/data/documents into Postgres
+```
 
-## Architecture
+Port 80 is taken? Use `WEB_PORT=3000 docker compose up -d`.
 
-### Stage 1: Web Scraping
-- Polite crawling with rate limiting
-- robots.txt compliance
-- PDF and HTML parsing
-- Duplicate detection
+The index command is an incremental sync. Each chunk's content hash is compared with Postgres: only new or edited chunks are embedded, removed ones are deleted, and an unchanged knowledge base costs zero API calls.
 
-### Stage 2: Document Storage
-- Structured JSON format
-- Full metadata preservation
-- Source URL tracking
-- Timestamp recording
+Other CLI commands run through the same image:
 
-### Stage 3: Chunking
-- 300-500 token chunks
-- 50-100 token overlap
-- Sentence boundary preservation
-- Context retention
+```bash
+docker compose --profile tools run --rm indexer python main.py query "What are the admission requirements?"
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose --profile tools run --rm indexer \
+  python main.py scrape --url https://aims-cameroon.org --resume
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose --profile tools run --rm indexer \
+  python scripts/evaluate_rag.py --n 20
+```
 
-### Stage 4: Vector Database
-- Sentence-transformers embeddings
-- FAISS or Chroma storage
-- Metadata preservation
-- Cosine similarity search
+## Tests
 
-### Stage 5: RAG Pipeline
-- LangChain orchestration
-- Mistral LLM generation
-- Strict context grounding
-- Source traceability
+```bash
+docker compose -f docker-compose.test.yml run --rm --build tests   # 22 tests, throwaway Postgres, no API credits
+docker compose -f docker-compose.test.yml down -v
+```
 
-## Accuracy Policy
+## Deploy to AWS
 
-- ❌ No assumptions or inferred information
-- ❌ No hallucinations
-- ✅ Explicit "information not available" responses
-- ✅ Every answer traceable to source
+A 3-tier setup: an AWS load balancer in front of a **web** server (Next.js), an **api** server (FastAPI) and a **db** server (Postgres), created with Terraform. See [deploy/README.md](deploy/README.md) for the one-time AWS account setup and costs, then:
 
-## License
-
-AIMS License
+```bash
+./infra/tf.sh init && ./infra/tf.sh apply   # create the infrastructure (Terraform in Docker)
+./deploy/deploy.sh ~/.ssh/aims-rag          # setup -> build -> test -> deploy -> smoke test
+./infra/tf.sh destroy                       # remove everything to stop spending credits
+```

@@ -56,7 +56,7 @@ def cmd_index(args):
     logger.info(f"Produced {len(all_chunks)} chunks from {len(docs)} documents.")
 
     rag = RagPipeline()
-    rag.build_index(all_chunks)
+    rag.build_index(all_chunks, force=getattr(args, 'force', False))
 
 
 def cmd_full(args):
@@ -92,7 +92,9 @@ def build_parser():
                            help='Skip URLs that already have a stored document instead of re-fetching them')
     p_scrape.set_defaults(func=cmd_scrape)
 
-    p_index = sub.add_parser('index', help='Chunk and build vector index')
+    p_index = sub.add_parser('index', help='Sync the vector index with stored documents (embeds only new/edited chunks)')
+    p_index.add_argument('--force', action='store_true',
+                         help='Allow deleting more than half of the indexed chunks')
     p_index.set_defaults(func=cmd_index)
 
     p_full = sub.add_parser('full', help='Scrape, index, and query')

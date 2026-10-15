@@ -1,0 +1,22 @@
+# Data tier. Port 5432 is published on the host; the db security group only admits the api tier.
+name: aims-rag
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: aims
+      POSTGRES_DB: aims
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aims -d aims"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:

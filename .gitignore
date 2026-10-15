@@ -43,3 +43,12 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Terraform / deploy (state holds IPs and resource ids; aws.env holds credentials)
+infra/aws.env
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/.terraform.tfstate.lock.info
+deploy/inventory.env
+deploy/.last_build

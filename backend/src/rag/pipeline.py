@@ -1,4 +1,4 @@
-"""LangChain RAG pipeline using Mistral via direct API.
+"""LangChain RAG pipeline (OpenRouter or direct Mistral API).
 
 Ensures strict context grounding through a system message.
 """
@@ -34,10 +34,6 @@ class RagPipeline:
         # Defer LLM initialization until actually needed (query time)
         self.llm = None
         self.indexer = Indexer()
-        try:
-            self.indexer.load()
-        except Exception:
-            logger.warning("Vector index not found; build it first.")
 
     def _ensure_llm(self):
         if self.llm is not None:
@@ -61,10 +57,9 @@ class RagPipeline:
             self.llm = ChatMistralAI(api_key=MISTRAL_API_KEY)
             logger.info("Using direct Mistral API")
 
-    def build_index(self, chunks: List[Dict]):
-        self.indexer.add(chunks)
-        self.indexer.save()
-        logger.info("Vector index built and saved.")
+    def build_index(self, chunks: List[Dict], force: bool = False):
+        self.indexer.sync(chunks, force=force)
+        logger.info(f"Vector index now holds {self.indexer.count()} chunks.")
 
     def _format_context(self, metas: List[Dict]) -> str:
         parts = []

@@ -5,7 +5,7 @@
 # after a full crawl already finished (it will just exit quickly).
 set -euo pipefail
 
-REPO_DIR="/home/elgenio/Documents/projects/aims-rag"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_FILE="$REPO_DIR/logs/resume_scrape.log"
 
 cd "$REPO_DIR"
